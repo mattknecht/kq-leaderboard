@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>KQSLC Leaderboard Overlay</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: transparent;
+      font-family: 'Arial Black', Arial, sans-serif;
+      color: #fff;
+      width: 400px;
+    }
+
+    #overlay {
+      opacity: 0;
+      transition: opacity 0.8s ease;
+      padding: 16px 20px;
+      background: rgba(0, 0, 0, 0.72);
+      border-left: 4px solid #f5c400;
+      border-radius: 4px;
+    }
+
+    #overlay.visible {
+      opacity: 1;
+    }
+
+    #stat-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #f5c400;
+      margin-bottom: 10px;
+    }
+
+    .player-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .player-row:last-child { border-bottom: none; }
+
+    .rank {
+      font-size: 11px;
+      color: #888;
+      width: 18px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    .rank.gold   { color: #f5c400; }
+    .rank.silver { color: #c0c0c0; }
+    .rank.bronze { color: #cd7f32; }
+
+    .name {
+      flex: 1;
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .score {
+      font-size: 14px;
+      font-weight: bold;
+      color: #f5c400;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="overlay">
+    <div id="stat-title"></div>
+    <div id="player-list"></div>
+  </div>
+
+  <script>
+    const SCENE = "kqslcmlps"; // scene to pull stats from, probably the same as what you have in bridge.js
+    const WS_URL = "wss://kq.style/beehive";
+
+    // Stats to cycle through — edit order/list as you like
+    const STATS = [
+      { key: "kills_queen_asqueen",   label: "Regicide" },
+      { key: "kills_queen_aswarrior", label: "Usurper" },
+      { key: "berries",               label: "Top Shareholder" },
+      { key: "berries_kicked",        label: "Marksman" },
+      { key: "snail",                 label: "Trailblazer" },
+      { key: "snail_deaths",          label: "Tastiest Treat" },
+      { key: "bump_assists",          label: "Bump Ninja" },
+    ];
+
+    const DISPLAY_MS   = 6000;  // how long each leaderboard is shown
+    const FADE_MS      =  800;  // must match CSS transition duration
+
+    let ws = null;
+    let pendingResolvers = {};
+    let statIndex = 0;
+
+    // ── WebSocket ──────────────────────────────────────────────────────────
+
+    function connect() {
+      ws = new WebSocket(WS_URL);
+      ws.onopen  = () => console.log("Connected");
+      ws.onclose = () => { console.log("Reconnecting..."); setTimeout(connect, 3000); };
+      ws.onerror = (e) => console.error("WS error", e);
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        const key = data.leaderboardName ?? data.leaderboard;
+        if (key && pendingResolvers[key]) {
+          pendingResolvers[key](data.players ?? []);
+          delete pendingResolvers[key];
+        }
+      };
+    }
+
+    function fetchLeaderboard(stat) {
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          console.warn("Timeout waiting for leaderboard:", stat);
+          delete pendingResolvers[stat];
+          resolve([]);
+        }, 5000);
+
+        pendingResolvers[stat] = (players) => {
+          clearTimeout(timeout);
+          resolve(players);
+        };
+
+        const send = () => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ scene: SCENE, type: "getLeaderboard", leaderboard: stat }));
+          } else {
+            setTimeout(send, 500);
+          }
+        };
+        send();
+      });
+    }
+
+    // ── DOM helpers ────────────────────────────────────────────────────────
+
+    const overlay    = document.getElementById("overlay");
+    const titleEl    = document.getElementById("stat-title");
+    const listEl     = document.getElementById("player-list");
+
+    function rankClass(i) {
+      return i === 0 ? "gold" : i === 1 ? "silver" : i === 2 ? "bronze" : "";
+    }
+
+    function formatValue(val, key) {
+      if (val == null || val === "") return "";
+      if (key === "warrior_uptime") {
+        const s = Math.round(val);
+        return s >= 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`;
+      }
+      if (key === "snail") return Math.round(val).toLocaleString();
+      return val;
+    }
+
+    function render(label, players, statKey) {
+      titleEl.textContent = label;
+      listEl.innerHTML = players.length === 0
+        ? `<div class="player-row"><span class="name" style="color:#888">No data yet</span></div>`
+        : players.slice(0, 10).map((p, i) => `
+        <div class="player-row">
+          <span class="rank ${rankClass(i)}">${i + 1}</span>
+          <span class="name">${p.name ?? p.id}</span>
+          <span class="score">${formatValue(p[statKey], statKey)}</span>
+        </div>
+      `).join("");
+    }
+
+    function fadeIn()  { overlay.classList.add("visible"); }
+    function fadeOut() { overlay.classList.remove("visible"); }
+
+    function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    // ── Main loop ──────────────────────────────────────────────────────────
+
+    async function run() {
+      connect();
+
+      // pre-fetch first stat immediately
+      let prefetched = {
+        key:     STATS[0].key,
+        label:   STATS[0].label,
+        players: await fetchLeaderboard(STATS[0].key),
+      };
+
+      while (true) {
+        const { label, players } = prefetched;
+
+        // start fetching next stat in background
+        const nextIndex = (statIndex + 1) % STATS.length;
+        const nextStat  = STATS[nextIndex];
+        const nextFetch = fetchLeaderboard(nextStat.key);
+
+        // show current
+        render(label, players, STATS[statIndex].key);
+        fadeIn();
+        await wait(DISPLAY_MS);
+        fadeOut();
+        await wait(FADE_MS);
+
+        // wait for next fetch to complete (usually already done)
+        prefetched = {
+          key:     nextStat.key,
+          label:   nextStat.label,
+          players: await nextFetch,
+        };
+
+        statIndex = nextIndex;
+      }
+    }
+
+    run();
+  </script>
+</body>
+</html>

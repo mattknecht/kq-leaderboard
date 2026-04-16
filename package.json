@@ -1,0 +1,11 @@
+{
+  "name": "kqslc-overlay",
+  "version": "1.0.0",
+  "description": "KQSLC tournament leaderboard overlay and HiveMind bridge",
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
