@@ -64,10 +64,10 @@ Add `index.html` as a **Browser Source** in OBS. Set width to `400` and height t
 |--------|---------|-------------|
 | `CABINET_IDS` | — | HiveMind cabinet ID(s) to listen to. Single number or array. |
 | `SCENE` | — | Unique scene name for your leaderboard. Must match `index.html`. |
-| `SEND_CASUAL_GAMES` | `true` | Include casual (non-match) games in stats. |
-| `SEND_TOURNAMENT_GAMES` | `true` | Include tournament match games in stats. |
-| `SKIP_WARMUP` | `true` | Ignore warmup games within a match. |
-| `SKIP_BONUS_MAPS` | `true` | Ignore bonus map games. |
+| `SEND_CASUAL_GAMES` | `true` | Include casual (non-match) games in stats. Set to `false` during a tournament. |
+| `SEND_TOURNAMENT_GAMES` | `false` | Include tournament match games in stats. Set to `true` during a tournament. |
+| `SKIP_WARMUP` | `true` | Ignore warmup games within a match. Warmup is detected via HiveMind's live match state — the first game of each tournament match is automatically flagged as warmup. |
+| `SKIP_BONUS_MAPS` | `true` | Ignore bonus map and beginner map games, which skew stats. |
 | `LOG_CONNECTIONS` | `true` | Log connect/disconnect/reconnect events. |
 | `LOG_GAME_EVENTS` | `true` | Log game-end events and skip reasons. |
 | `LOG_PLAYER_DATA` | `false` | Log full mapped player stats per game (verbose). |
@@ -110,6 +110,6 @@ Add `index.html` as a **Browser Source** in OBS. Set width to `400` and height t
 
 - Stats are **cumulative** — they build up across all games sent to your scene
 - To reset the leaderboard, contact **@lucidsheep** on the KQ Discord
-- Bonus maps are skipped by default as they skew stats
+- Bonus and beginner maps are skipped by default as they skew stats
 - Only players signed in to HiveMind will appear on the leaderboard
 - Both bridge.js and index.html auto-reconnect if the connection drops

@@ -26,6 +26,10 @@ const KQSTYLE_WS  = "wss://kq.style/beehive";
 const WebSocket = require("ws");
 const https = require("https");
 
+// Per-cabinet match state, updated by "match" WS events.
+// cabinetMatchState[cabinet_id] = { current_match, match_type } | null
+const cabinetMatchState = {};
+
 const log  = (enabled, ...args) => { if (enabled) console.log(...args); };
 const warn = (...args) => console.warn(...args);
 const err  = (...args) => console.error(...args);
@@ -76,8 +80,17 @@ function connectHivemind() {
     try { data = JSON.parse(raw); } catch { return; }
 
     if (data.type === "cabinetOffline") return;
-    if (data.type !== "gameend") return;
     if (!CABINET_IDS.includes(data.cabinet_id)) return;
+
+    if (data.type === "match") {
+      cabinetMatchState[data.cabinet_id] = {
+        current_match: data.current_match ?? null,
+        match_type:    data.match_type ?? null,
+      };
+      return;
+    }
+
+    if (data.type !== "gameend") return;
 
     const gameId = data.game_id;
     log(LOG_GAME_EVENTS, `[HiveMind] Game ended: ${gameId} on cab ${data.cabinet_id}`);
@@ -85,10 +98,15 @@ function connectHivemind() {
     (async () => {
       try {
         const game = await fetchJson(`https://kqhivemind.com/api/game/game/${gameId}/`);
-        const isTournament = game.current_match != null;
-        const isWarmup     = game.current_match?.is_warmup === true;
+        const matchState   = cabinetMatchState[data.cabinet_id] ?? null;
+        const currentMatch = matchState?.current_match ?? null;
+        const isTournament = (matchState?.match_type === "tournament" && currentMatch != null)
+                          || game.tournament_match != null;
+        const isWarmup     = currentMatch?.is_warmup === true
+                          || (isTournament && currentMatch === null)
+                          || (isTournament && game.tournament_match == null);
 
-        if (SKIP_BONUS_MAPS && game.map_name?.startsWith("Bonus")) {
+        if (SKIP_BONUS_MAPS && (game.map_name?.startsWith("Bonus") || game.map_name?.startsWith("Beginner"))) {
           log(LOG_GAME_EVENTS, `[HiveMind] Skipping bonus map game ${gameId} (${game.map_name})`);
           return;
         }
